@@ -5,6 +5,8 @@ import numpy as np
 
 from mine import common as gr
 
+SUN_HEIGHT = 50
+
 antialiasing_multiplier = 4
 
 
@@ -15,17 +17,15 @@ def hsv_to_rgb(hsv):
 colors_space = ((gr.hsv_angle(120), 1, 1), (gr.hsv_angle(0), 1, 1))
 
 
-def get_h_value(value, maximum, minimum):
-    return gr.linear_interpolation(colors_space, (value - minimum) / maximum)[0]
+def get_h_value(value, max_min_dif, minimum):
+    return gr.linear_interpolation(colors_space, (value - minimum) / max_min_dif)[0]
 
 
 # Funkcja rysująca mapę
 def drawMap(mapa, file_name):
-    # fig = plt.figure()
     fig, axs = plt.subplots(1, 1, figsize=(8, 6), dpi=80)
     im = axs.imshow(mapa, interpolation="hermite")
     im.set_extent([0, 500, 500, 0])
-    # axs.yaxis.set_mayor_formatter(tkr.FuncFormatter(lambda y, pos: y/antialiasing_multiplier))
     plt.show()
     fig.savefig(file_name)
 
@@ -54,17 +54,17 @@ def createHSVmatrix(width, height):
 
 
 def simple_shading(mapa, width, height):
-    minimum = np.min(mapa)  # Minimum wysokości potrzebne do normalizacji
-    maximum = np.max(mapa) - minimum # Maximum wyskokości potrzebne do normalizacji
-    mapaHSV = createHSVmatrix(width, height)  # Macierz, która jest uzupełniana kolorami HSV na podstawie obliczeń
+    minimum = np.min(mapa)
+    max_min_dif = np.max(mapa) - minimum
+    mapaHSV = createHSVmatrix(width, height)
     for x in range(width):
         for y in range(height):
-            mapaHSV[x][y][0] = get_h_value(mapa[x][y], maximum, minimum)
+            mapaHSV[x][y][0] = get_h_value(mapa[x][y], max_min_dif, minimum)
             if y == 0:
                 div = mapa[x][y] - mapa[x][y+1] # Różnica między wysokością punktu a jego prawym sąsiadem
             else:
                 div = mapa[x][y] - mapa[x][y-1] # Różnica między wysokością punktu a jego lewym sąsiadem
-            div = div*7 / maximum
+            div = div*7 / max_min_dif
             if div > 0:
                 mapaHSV[x][y][1] -= abs(div)
             else:
@@ -75,13 +75,14 @@ def simple_shading(mapa, width, height):
 
 # Określanie koloru i cieniowania na podstawie kąta pomiędzy wektorem normalnym powierzchni a wektorem słońca
 def vectorShading(mapa, width, height, distance):
-    minimum = np.min(mapa)  # Minimum wysokości potrzebne do normalizacji
-    maximum = np.max(mapa) - minimum  # Maximum wyskokości potrzebne do normalizacji
-    sun = np.array([-distance, 50, -distance])  # Wektor słońca
+    minimum = np.min(mapa)
+    height_dif = np.max(mapa) - minimum
+    sun = np.array([-distance, SUN_HEIGHT, -distance])  # Wektor słońca
     mapaHSV = createHSVmatrix(width, height)  # Macierz, która jest uzupełniana kolorami HSV na podstawie obliczeń
     matrixOfAngles = prepare_angles_map(distance, width, height, mapa, sun)# Posortowana lista kątów. Żeby lepiej uwidocznić cieniowanie
-    reshade_map(width, height, mapa, mapaHSV, matrixOfAngles, maximum, minimum)
-    return antialiase(mapaHSV)
+    reshade_map(width, height, mapa, mapaHSV, matrixOfAngles, height_dif, minimum)
+    # return antialiase(mapaHSV)
+    return mapaHSV
 
 
 def prepare_angles_map(distance, width, height, mapa, sun):
@@ -116,14 +117,14 @@ def prepare_angles_map(distance, width, height, mapa, sun):
     return angles
 
 
-def reshade_map(width, height, mapa, mapaHSV, matrixOfAngles, maximum, minimum):
+def reshade_map(width, height, mapa, mapaHSV, matrixOfAngles, max_min_dif, minimum):
     angles = np.sort(np.reshape(matrixOfAngles, -1))
     minAngle = np.min(angles)
     maxAngle = np.max(angles)
     # Określanie stopnia przyciemnienia na podstawie odchyleń kąta.
     for x in range(width):
         for y in range(height):
-            mapaHSV[x][y][0] = get_h_value(mapa[x][y], maximum, minimum)
+            mapaHSV[x][y][0] = get_h_value(mapa[x][y], max_min_dif, minimum)
             # Normalizowanie kąta x dodatkowe obliczenia uśredniające wynik
             relative_lightening(angles, x, y, mapaHSV, matrixOfAngles)
             normalize_lightening(x, y, mapaHSV, matrixOfAngles, maxAngle, minAngle)
