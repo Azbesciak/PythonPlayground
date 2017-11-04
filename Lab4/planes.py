@@ -1,36 +1,37 @@
 from __future__ import division
-from pylab import *
-import skimage as ski
-from skimage import data, io, filters, exposure, measure
-from skimage.filters import rank
-from skimage import img_as_float, img_as_ubyte
-from skimage.morphology import disk
-import skimage.morphology as mp
-from skimage import util
-from skimage.color import rgb2hsv, hsv2rgb, rgb2gray
-from skimage.filters.edges import convolve
-from matplotlib import pylab as plt
-import numpy as np
-from numpy import array
-from IPython.display import display
-from ipywidgets import interact, interactive, fixed
-from ipywidgets import *
-from ipykernel.pylab.backend_inline import flush_figures
+
 from multiprocessing.pool import ThreadPool
 
+import skimage as ski
+import skimage.morphology as mp
+from matplotlib import pylab as plt
+from pylab import *
+from skimage import io
+from skimage.color import hsv2rgb, rgb2gray
+
+GAMMA = 0.7
+SIGMA = 4.65
+detection_range = 12
+center_circle_range = 5
+
 planesToRead = [
-    '01','02','04',
-    '05','06','08',
+    '01', '02', '04',
+    '05', '06', '08',
     '09', '10', '11',
     '12', '13', '14',
     '15', '16', '17',
     '18', '19', '00'
-    # '17'
+    # '19'
 ]
 
 
-def drawPlanesImage(i):
-    plt.subplot(6,3,i)
+def drawPlanesImage(i, img):
+    plt.subplot(6, 3, i)
+    # plt.subplot(1, 1, i)
+    frame = plt.gca()  # Frame do usuniecia osi
+    frame.axes.get_xaxis().set_visible(False)  # Usuniecie osix
+    frame.axes.get_yaxis().set_visible(False)  # Usuniecie osiy
+    plt.imshow(img)
 
 
 planes = [io.imread('./planes/samolot{0}.jpg'.format(i)) for i in planesToRead]
@@ -39,60 +40,18 @@ for plane in planes:
     imageList.append(plane)
 
 
-def increaseEdges(img, lim = 0.3):
-    img = mp.erosion(img)
-    img[img[:,:] >= lim] = 1
-    img[img[:,:] < lim] = 0
-    img = mp.dilation(img)
-    img = mp.dilation(img)
-    img = mp.erosion(img)
-
-    return img
-
-
-# def getEdges(img, scale=0.15):
-#     K = array([[ 1, 2, 1],
-#            [ 0, 0, 0],
-#            [-1,-2,-1]])
-#     K = K / 4
-#
-#     K2 = array([[ -1, 0, 1],
-#                [ -2, 0, 2],
-#                [-1,0,1]])
-#     K2 = K2 / 4
-#     img = rgb2gray(img)
-#     res1 = np.abs(convolve(img, K))
-#     res2 = np.abs(convolve(img, K2))
-#     res = (res1 + res2) / 2
-# #     print(res)
-#     return increaseEdges(res, scale)
-
-
-# def getEdges(image, level = 0.07):
-#     blackWhite = rgb2gray(image)
-#     blackWhite = blackWhite ** 1.5
-#     blackWhite = filters.sobel(blackWhite)
-#     blackWhite = blackWhite ** 0.7
-#     blackWhite = filters.sobel(blackWhite)
-#     blackWhite = mp.dilation(blackWhite)
-#     blackWhite = mp.erosion(blackWhite)
-#
-#     blackWhite[blackWhite[:,:] >= level] = 1
-#     blackWhite[blackWhite[:,:] < level] = 0
-#     return blackWhite
-
-def getEdges(img, x): #gama 0.7 sig = 4.65
+def getEdges(img):
     img = rgb2gray(img)
     from skimage import feature
-    img = img ** 0.7
-    img = ski.feature.canny(img, sigma=4.65)
+    img = img ** GAMMA
+    img = ski.feature.canny(img, sigma=SIGMA)
     img = mp.dilation(img)
     return img
 
 
 def processImage(img):
     print("started")
-    res = getEdges(img, 0.09)
+    res = getEdges(img)
     res = hsv2rgb(colorImg(res))
     res = addBorders(img, res)
     return res
@@ -100,11 +59,18 @@ def processImage(img):
 
 def replaceAll(objectsMap, oldId, newId):
     objectsMap[objectsMap == oldId] = newId
+    return objectsMap
 
 
 def findObjects(img):
+    idsMap, objectsMap, maxObjId = find_objects(img)
+    set_center_points(idsMap, objectsMap)
+    return objectsMap, maxObjId
+
+
+def find_objects(img):
+    r = detection_range
     maxObjId = 0
-    r = 6
     idsMap = [0]
     objectsMap = np.zeros((len(img), len(img[0])))
     for x in range(r, len(img) - r):
@@ -130,17 +96,55 @@ def findObjects(img):
                         maxObjId += 1
                         idsMap.append(1)
                         objectsMap[x][y] = maxObjId
-    lev = max(idsMap) / 7
-    objCords = []
 
+    idsMap, maxObjId = rescale_ids(idsMap, objectsMap)
+    return idsMap, objectsMap, maxObjId
+
+
+def rescale_ids(idsMap, objectsMap):
+    rescaled_id = [0]
+    current_id = 0
+    for i in range(len(idsMap)):
+        if idsMap[i] > 0:
+            current_id += 1
+            replaceAll(objectsMap, i, current_id)
+            rescaled_id.append(idsMap[i])
+    objectsMap[objectsMap > current_id] = 0
+    maxObjId = len(rescaled_id)
+    return rescaled_id, maxObjId
+
+
+def set_center_points(idsMap, objectsMap):
+    lev = max(idsMap) / 7
+    objCords = initialize_ids_map(idsMap)
+    count_bounding_box(idsMap, lev, objCords, objectsMap)
+    measure_center(objCords, objectsMap)
+
+
+def initialize_ids_map(idsMap):
+    objCords = []
     for i in range(len(idsMap)):
         objCords.append({
-            "left": len(img),
-            "right": 0,
-            "top": len(img[0]),
-            "bottom": 0
-            # "x":0, "y": 0, "n":0
+            "x": 0, "y": 0, "n": 0
         })
+    return objCords
+
+
+def measure_center(objCords, objectsMap):
+    r = center_circle_range
+    for i in range(len(objCords)):
+        if objCords[i] != 0:
+            x = int((objCords[i]["x"] / objCords[i]["n"]))
+            y = int((objCords[i]["y"] / objCords[i]["n"]))
+            for j in range(-r, r + 1):
+                for k in range(-r, r + 1):
+                    if len(objectsMap) > x + j >= 0 \
+                            and len(objectsMap[x]) > y + k >= 0 \
+                            and abs(j) + abs(k) <= r:
+                        objectsMap[x + j][y + k] = i
+
+
+def count_bounding_box(idsMap, lev, objCords, objectsMap):
     for i in range(len(objectsMap)):
         for j in range(len(objectsMap[i])):
             objId = int(objectsMap[i][j])
@@ -148,37 +152,22 @@ def findObjects(img):
                 objectsMap[i][j] = 0
                 objCords[objId] = 0
             else:
-                objCords[objId]["left"] = min(objCords[objId]["left"], i)
-                objCords[objId]["right"] = max(objCords[objId]["right"], i)
-                objCords[objId]["top"] = min(objCords[objId]["top"], j)
-                objCords[objId]["bottom"] = max(objCords[objId]["bottom"], j)
-                # objCords[objId]["x"] += i
-                # objCords[objId]["y"] += j
-                # objCords[objId]["n"] += 1
-
-    for i in range(len(objCords)):
-        if objCords[i] != 0:
-            x = int((objCords[i]["left"] + objCords[i]["right"]) / 2)
-            y = int((objCords[i]["top"] + objCords[i]["bottom"]) / 2)
-            # x = int((objCords[i]["x"] / objCords[i]["n"]))
-            # y = int((objCords[i]["y"] / objCords[i]["n"]))
-            for j in range(-r, r + 1):
-                for k in range(-r, r + 1):
-                    if x+j < len(objectsMap) and x+j >=0 and y+k < len(objectsMap[x]) and y+k >= 0:
-                        objectsMap[x+j][y+k] = idsMap[i]
-
-    return objectsMap, maxObjId
+                objCords[objId]["x"] += i
+                objCords[objId]["y"] += j
+                objCords[objId]["n"] += 1
 
 
 def colorImg(img):
     objectsMap, maxObjId = findObjects(img)
-    colorStep = 360 / maxObjId
+    colorStep = 1 / maxObjId
     colorsMap = []
+    unique_adder = random()
     for i in range(len(img)):
         colorsMap.append([])
         for j in range(len(img[i])):
             h = colorStep * objectsMap[i][j]
             if not h == 0:
+                h += unique_adder
                 colorsMap[i].append([h, 1, 1])
             else:
                 colorsMap[i].append([0, 0, 0])
@@ -196,7 +185,7 @@ def addBorders(original, borders):
 fig = plt.figure(facecolor="black", figsize=(60, 60))  # czarne tło
 
 
-def fun(p=1, k=20):
+def fun():
     elements = len(imageList)
     imagesProc = []
     pool = ThreadPool(processes=elements)
@@ -210,12 +199,10 @@ def fun(p=1, k=20):
     for i in range(len(imagesProc)):
         print("waiting for {0}".format(i))
         res = imagesProc[i].get()
-        #         print(res)
-        drawPlanesImage(i + 1)
-        plt.imshow(res)
+        drawPlanesImage(i + 1, res)
     plt.tight_layout()  # Aby obrazy znajdowały się obok siebie
     plt.show()
-    fig.savefig("samoloty4.pdf")
+    fig.savefig("planes.pdf")
     plt.close()
 
 
