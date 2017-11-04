@@ -5,6 +5,8 @@ import numpy as np
 
 from mine import common as gr
 
+POSITION_BORDER_LIMIT = 0.5
+
 SUN_HEIGHT = 50
 
 antialiasing_multiplier = 4
@@ -145,7 +147,7 @@ def relative_lightening(angles, x, y, mapaHSV, matrixOfAngles):
     position = np.where(angles == matrixOfAngles[x][y])[0]
     position = position[0] / len(angles)
     # Określenie S i V na podstawie pozycji kąta
-    div = position - 0.65
+    div = position - POSITION_BORDER_LIMIT
     if div < 0:
         mapaHSV[x][y][1] = 1 - np.sin(matrixOfAngles[x][y]) * abs(div)
     else:
