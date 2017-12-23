@@ -15,19 +15,19 @@ detection_range = 12
 center_circle_range = 5
 
 planesToRead = [
-    '01', '02', '04',
-    '05', '06', '08',
-    '09', '10', '11',
-    '12', '13', '14',
-    '15', '16', '17',
-    '18', '19', '00'
-    # '19'
+    # '01', '02', '04',
+    # '05', '06', '08',
+    # '09', '10', '11',
+    # '12', '13', '14',
+    # '15', '16', '17',
+    # '18', '19', '00'
+    '02'
 ]
 
 
 def drawPlanesImage(i, img):
-    plt.subplot(6, 3, i)
-    # plt.subplot(1, 1, i)
+    # plt.subplot(6, 3, i)
+    plt.subplot(1, 1, i)
     frame = plt.gca()  # Frame do usuniecia osi
     frame.axes.get_xaxis().set_visible(False)  # Usuniecie osix
     frame.axes.get_yaxis().set_visible(False)  # Usuniecie osiy
